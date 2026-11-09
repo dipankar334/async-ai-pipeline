@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Async AI Data Ingestion Pipeline</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 2rem; }
+    .container { max-width: 1050px; margin: 0 auto; }
+    h1 { color: #38bdf8; margin-bottom: 0.25rem; }
+    p.sub { color: #94a3b8; margin-top: 0; margin-bottom: 1.5rem; }
+    .controls { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; }
+    button { background: #0284c7; color: #fff; border: none; padding: 0.85rem 1.4rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.95rem; }
+    button:hover { background: #0369a1; }
+    .badge { background: #1e293b; border: 1px solid #334155; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.9rem; color: #4ade80; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    .card { background: #1e293b; padding: 1rem; border-radius: 10px; border: 1px solid #334155; }
+    .label { font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; }
+    .val { font-size: 1.5rem; font-weight: 700; margin-top: 0.25rem; color: #38bdf8; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 0.75rem; }
+    th, td { text-align: left; padding: 0.7rem; border-bottom: 1px solid #334155; }
+    th { color: #94a3b8; }
+    .risk-true { color: #f87171; font-weight: 700; }
+    .risk-false { color: #4ade80; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>High-Throughput Async AI Ingestion Pipeline</h1>
+    <p class="sub">Express Producer (202 Accepted) → Redis BullMQ → Concurrent GPU Workers → Zod Guardrails → PostgreSQL</p>
+
+    <div class="controls">
+      <button onclick="sendBatch()">Simulate Burst: Upload 5 Invoices Simultaneously</button>
+      <div class="badge" id="apiStatus">Ready to ingest documents</div>
+    </div>
+
+    <div class="metrics">
+      <div class="card"><div class="label">Queue: Waiting</div><div class="val" id="mWaiting">0</div></div>
+      <div class="card"><div class="label">GPU Workers: Active</div><div class="val" id="mActive" style="color:#facc15;">0</div></div>
+      <div class="card"><div class="label">Completed Jobs</div><div class="val" id="mCompleted" style="color:#4ade80;">0</div></div>
+      <div class="card"><div class="label">Failed (After Retries)</div><div class="val" id="mFailed" style="color:#f87171;">0</div></div>
+    </div>
+
+    <div class="card">
+      <div class="label">PostgreSQL Warehouse: Extracted & Validated Records</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Job ID</th>
+            <th>Vendor</th>
+            <th>Invoice #</th>
+            <th>Amount</th>
+            <th>Risk Flag</th>
+            <th>GPU Time</th>
+          </tr>
+        </thead>
+        <tbody id="recordsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const sampleBatch = [
+      "Invoice INV-2026-881 from CloudScale Infrastructure Ltd. Total due: $4,250.00 USD for Q4 GPU cluster hosting.",
+      "URGENT OVERDUE NOTICE: Apex Security Systems, Inv #APX-904. Total amount payable 14500.00 USD. Late penalty applies.",
+      "Receipt from Brahmaputra Data Labs (Guwahati). Bill No: BDL-112. Amount: 85000 INR. Paid in full.",
+      "Nordic Cloud Storage GmbH — Invoice 7731-EU. Total: 2890.50 EUR. Standard monthly archival tier.",
+      "Enterprise AI Consulting Group | Ref: EAI-550 | Total Balance: $18,200.00 USD | Executive architecture audit."
+    ];
+
+    async function sendBatch() {
+      const res = await fetch('/api/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documents: sampleBatch })
+      });
+      const data = await res.json();
+      document.getElementById('apiStatus').textContent =
+        `HTTP 202 Accepted in ${data.apiResponseMs} ms! Queued Job IDs: [${data.jobIds.join(', ')}]`;
+      pollTelemetry();
+    }
+
+    async function pollTelemetry() {
+      const res = await fetch('/api/telemetry');
+      const data = await res.json();
+
+      document.getElementById('mWaiting').textContent = data.queueMetrics.waiting;
+      document.getElementById('mActive').textContent = data.queueMetrics.active;
+      document.getElementById('mCompleted').textContent = data.queueMetrics.completed;
+      document.getElementById('mFailed').textContent = data.queueMetrics.failed;
+
+      const tbody = document.getElementById('recordsBody');
+      tbody.innerHTML = data.records.map(r => `
+        <tr>
+          <td>#${r.job_id}</td>
+          <td><strong>${r.vendor_name}</strong></td>
+          <td>${r.invoice_number}</td>
+          <td>${Number(r.total_amount).toLocaleString()} ${r.currency}</td>
+          <td class="${r.risk_flag ? 'risk-true' : 'risk-false'}">${r.risk_flag ? 'HIGH RISK' : 'NORMAL'}</td>
+          <td>${r.processing_ms} ms</td>
+        </tr>
+      `).join('');
+    }
+
+    setInterval(pollTelemetry, 1000);
+    pollTelemetry();
+  </script>
+</body>
+</html>
